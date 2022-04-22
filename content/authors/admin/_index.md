@@ -8,7 +8,7 @@ education:
   - course: MEng
     institution: Mississippi State University
     year: 2018
-  - course: BSc in Mathematics
+  - course: BS in Mathematics
     institution: Mississippi State University
     year: 2015
 email: ""
@@ -24,7 +24,7 @@ role: Research Engineer
 social:
 - icon: envelope
   icon_pack: fas
-  link: /#contact
+  link: mailto:jonathankanestorey@gmail.com
 - display:
     header: true
   icon: instagram
