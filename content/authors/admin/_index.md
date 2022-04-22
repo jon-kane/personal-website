@@ -1,6 +1,5 @@
 ---
-bio: My research interests include distributed robotics, mobile computing and programmable
-  matter.
+bio: My research interests include data visualization and machine learning.
 education:
   courses:
   - course: PhD candidate in Computational Engineering

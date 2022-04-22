@@ -1,0 +1,265 @@
+---
+title: Comparing Median Earnings & Home Prices in the US
+author: R package build
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+slug: comparing-median-earnings-home-prices-in-the-us
+categories: []
+tags: []
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2022-04-22T14:29:08-05:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  warning = FALSE
+  )
+
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(fiftystater) # All 50 states together
+library(ggmap)
+library(maps)
+library(mapdata)
+
+theme_set(theme_classic())
+```
+
+With all the craziness recently with housing costs, I became interested in looking into this. Data on median income was collected from the [US census website](https://www.census.gov/data/data-tools.html) while the housing data came from [Zillow](https://www.zillow.com/research/data/). Zillow refers to its data as the “typical” (not median) cost of a house. See [here](https://www.zillow.com/research/zhvi-user-guide/) for more info.
+
+```{r, error=FALSE, message=FALSE}
+tb_earnings = read_excel("h08.xls", skip = 5, n_max = 52) %>% 
+  rename('region' = '...1') %>% 
+  pivot_longer(-region, names_to = 'type', values_to = 'dollars') %>% 
+  mutate(year = rep(
+    rep(
+      c(2018:2017, 2017:2013, 2013:1984), 
+      each = 2
+      ), 
+    times = length(unique(region)))
+    ) %>% 
+  mutate(type = ifelse(grepl('Med', type), 'median', 'se')) %>% 
+  mutate(index = rep(1:1924, each = 2)) %>% 
+  pivot_wider(names_from = 'type', values_from = 'dollars') %>% 
+  select(-index) %>% 
+  group_by(region, year) %>% 
+  summarize(median = first(median)) # Keep re-estimated figures 
+
+# tb_earnings
+```
+
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+tb_state_home = read_csv("State_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_mon.csv") %>% select(RegionName, `1996-01-31`:`2018-12-31`) %>% 
+  rename('region' = 'RegionName') %>% 
+  pivot_longer(-region, names_to = 'date', values_to = 'typical_home') %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(year = year(date)) %>% 
+  group_by(region, year) %>% 
+  summarize(typical_home = last(typical_home))
+
+tb_country_home = read_csv("Metro_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_mon.csv") %>% select(RegionName, `1996-01-31`:`2018-12-31`) %>% 
+  rename('region' = 'RegionName') %>% 
+  filter(region == 'United States') %>% 
+  pivot_longer(-region, names_to = 'date', values_to = 'typical_home') %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(year = year(date)) %>% 
+  group_by(region, year) %>% 
+  summarize(typical_home = last(typical_home))
+
+tb_home = bind_rows(tb_state_home, tb_country_home) %>% 
+  mutate(region = ifelse(region == 'District of Columbia', 'D.C.', region))
+
+# tb_home
+```
+
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+tb = tb_earnings %>% 
+  left_join(tb_home, by = c('region', 'year')) %>% 
+  mutate(ratio = typical_home/median) %>% 
+  filter(!is.na(ratio)) # Drop the years the data is unavailable
+```
+
+```{r}
+locs = tb$region %>% unique()
+
+base_plot = ggplot()
+
+for (loc in locs) {
+  base_plot = base_plot + 
+    geom_line(
+      data = tb %>% filter(region == loc),
+      mapping = aes(year, median),
+      alpha = 0.25
+      )
+}
+
+base_plot + 
+  labs(
+    x = 'year', 
+    y = 'median income',
+    title = 'median income per state over time'
+    ) + 
+  scale_y_continuous(labels = scales::dollar)
+```
+
+```{r}
+locs = tb$region %>% unique()
+
+base_plot = ggplot()
+
+for (loc in locs) {
+  base_plot = base_plot + 
+    geom_line(
+      data = tb %>% filter(region == loc),
+      mapping = aes(year, typical_home),
+      alpha = 0.25
+      )
+}
+
+base_plot + 
+  labs(
+    x = 'year', 
+    y = 'typical cost of home',
+    title = 'typical home cost per state over time'
+    ) + 
+  scale_y_continuous(labels = scales::dollar)
+```
+
+```{r}
+locs = tb$region %>% unique()
+
+base_plot = ggplot()
+
+for (loc in locs) {
+  base_plot = base_plot + 
+    geom_line(
+      data = tb %>% filter(region == loc),
+      mapping = aes(year, ratio),
+      alpha = 0.25
+      )
+}
+
+base_plot + 
+  labs(
+    x = 'year', 
+    y = 'ratio',
+    title = 'ratio of of median income to typical home cost'
+    )
+```
+
+Highlight the outliers, the US as a whole, Mississippi, and Tennessee.
+
+```{r}
+outliers = tb %>% 
+  ungroup() %>% 
+  filter(year == 2018) %>% 
+  arrange(desc(ratio)) %>% 
+  pull(region)
+
+tb_info = tb %>% 
+  ungroup() %>% 
+  filter(year == 2018 | year == 1996)
+```
+
+Percent change from 1996 to 2018 for highlighted regions
+```{r}
+# tb_info %>% 
+#   select(region, year, ratio) %>% 
+#   mutate(year = paste0('y', year)) %>% 
+#   pivot_wider(names_from = 'year', values_from = ratio) %>% 
+#   mutate(y1996 = round(y1996, 2)) %>% 
+#   mutate(y2018 = round(y2018, 2)) %>%
+#   mutate(percent_change = round((y2018/y1996) - 1, 4)) %>% 
+#   arrange(desc(percent_change)) %>% 
+#   mutate(percent_change = scales::percent(percent_change, accuracy = 0.01)) %>%
+#   rename(`1996` = y1996, `2018` = y2018, `% change` = percent_change) %>% 
+#   knitr::kable(align = 'c')
+```
+
+## Some Key Takeaways
+From 1996-2018, the US as a whole has experienced a 22% increase in the ratio of housing cost to median income. During the same period, CA experienced an 89% increase, Tennessee experienced a 3% increase, and MS experienced a 1% increase.
+
+
+Add highlights to the base plot.
+
+## House to median income ratio
+```{r}
+highlighted_regions = c(outliers[1:3], 'United States', 'Mississippi')
+
+tb_highlights = tb %>% 
+  filter(region %in% highlighted_regions)
+
+base_plot + 
+  geom_line(data = tb_highlights, mapping = aes(year, ratio, color = region), size = 1.5) +
+  theme(legend.position = c(0.15, 0.8))
+```
+
+```{r}
+tb_percent = tb %>% 
+  ungroup() %>% 
+  filter(year == 2018 | year == 1996) %>% 
+  select(region, year, ratio) %>% 
+  mutate(year = paste0('y', year)) %>% 
+  pivot_wider(names_from = 'year', values_from = ratio) %>% 
+  mutate(percent_change = (y2018/y1996) - 1) 
+
+# tb_percent %>% arrange(desc(percent_change))
+# 
+# tb_percent$percent_change %>% psych::describe()
+
+tb_percent %>% 
+  drop_na() %>% 
+  ggplot(aes(percent_change)) + 
+  geom_histogram(bins = 10, color = 'gray', fill = 'black') + 
+  labs(
+    x = '% change',
+    title = 'Distribution of Ratio Change for US',
+    subtitle = '1996 to 2018'
+    ) + 
+  scale_x_continuous(labels = scales::percent)
+```
+
+**Note: Montana, New Mexico, North Dakota, and Wyoming are missing data for 1996.**
+
+### How many states (including D.C., excluding missing states) are below the national average in percent change?
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+us_percent = tb_percent %>% 
+  filter(region == 'United States') %>% 
+  pull(percent_change)
+
+tb_percent %>% 
+  filter(region != 'United States') %>% 
+  group_by(region) %>% 
+  summarize(is_lower = percent_change < us_percent) %>% 
+  filter(!is.na(is_lower)) %>% 
+  ungroup() %>% 
+  summarize(
+    number_above = sum(!is_lower),
+    number_below = sum(is_lower),
+    proportion_below = sum(is_lower)/n()
+    )
+```
+## Percent change map
+```{r}
+tb_percent %>% 
+  filter(!(region %in% c('United States', 'D.C.'))) %>% 
+  mutate(region = tolower(region)) %>% 
+  ggplot() + 
+  geom_map(aes(map_id = region, fill = percent_change), map = fifty_states) +
+  expand_limits(x = fifty_states$long, y = fifty_states$lat) +
+  coord_map() + 
+  scale_fill_viridis_c(option = 'magma', labels = scales::percent) + 
+  labs(title = 'Percent change in housing/median earnings: 1996 - 2018') + 
+  theme_void() + 
+  labs(fill = '% change')
+```
